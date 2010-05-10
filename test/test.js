@@ -337,6 +337,14 @@ function testMGET() {
         checkEqual(values[0], 'bar', "testMGET");
         checkEqual(values[1], 'buz', "testMGET");
     });
+
+    // Accept an Array for the keys to MGET as well.
+
+    client.mget(['foo', 'baz'], function (err, values) {
+        if (err) assert.fail(err, "testMGET");
+        checkEqual(values[0], 'bar', "testMGET");
+        checkEqual(values[1], 'buz', "testMGET");
+    });
 }
 
 function testGETSET() {
@@ -439,6 +447,18 @@ function testKEYS() {
         redisclient.convertMultiBulkBuffersToUTF8Strings(keys);
         checkDeepEqual(keys.sort(), ['boo'], "testKEYS");
     });
+
+    // Now try a key with a space in it.
+    // At this point we have keys: foo1, foo2, baz, boo, a key is this
+
+    client.set('a key is this', 'whatever', expectOK("testKEYS"))
+
+    client.keys('*', function (err, keys) {
+        if (err) assert.fail(err, "testKEYS");
+        checkEqual(keys.length, 5, "testKEYS");
+        redisclient.convertMultiBulkBuffersToUTF8Strings(keys);
+        checkDeepEqual(keys.sort(), ['a key is this', 'baz', 'boo', 'foo1', 'foo2'], "testKEYS");
+    });
 }
 
 function testRANDOMKEY() {
@@ -480,6 +500,8 @@ function testDBSIZE() {
 }
 
 function testEXPIRE() {
+    showTestBanner("testEXPIRE");
+
     // set 'expfoo' to expire in 2 seconds
 
     client.set('expfoo', 'bar', expectOK("testEXPIRE"));
@@ -487,11 +509,38 @@ function testEXPIRE() {
 
     // subsequent expirations cannot be set.
 
-    client.expire('expfoo', 2, expectNumber(0, "testEXPIRE"));
+    client.expire('expfoo', 10, expectNumber(0, "testEXPIRE"));
+
+    if (verbose)
+        log("info", "Please wait while a test key expires ...");
 
     setTimeout(function () {
-        client.exists('expfoo', expectNumber(0, "testEXPIRE"));
-    }, 2500);
+        client.exists('expfoo', function (err, value) {
+            if (err) assert.fail(err, "testEXPIRE");
+            checkEqual(value, 0, "testEXPIRE");
+            testSETEX();
+        });
+    }, 3000);   // give it time to expire after 2 seconds
+}
+
+function testSETEX() {
+    showTestBanner("testSETEX");
+
+    client.setex('foo', 2, 'bar', function (err, value) {
+        if (err) assert.fail(err, "testSETEX");
+        checkEqual(value, true, "testSETEX");
+    });
+
+    if (verbose)
+        log("info", "Please wait while a test key expires ...");
+
+    setTimeout(function () {
+        client.exists('foo', function (err, value) {
+            if (err) assert.fail(err, "testSETEX");
+            checkEqual(value, 0, "testSETEX");
+            testSUBSCRIBEandPUBLISH();
+        });
+    }, 3000);
 }
 
 function testTTL() {
@@ -1498,6 +1547,8 @@ function testPUBLISH() {
 var messageWasReceived = false;
 
 function testSUBSCRIBEandPUBLISH() {
+    showTestBanner("testSUBSCRIBEandPUBLISH");
+
     var messagePayload = "I'm a lumberjack!";
     var channelName = "Monty";     
 
@@ -1508,6 +1559,9 @@ function testSUBSCRIBEandPUBLISH() {
     }); 
 
     // Create a 2nd client that publishes a message.
+
+    if (verbose)
+        log("info", "creating 2nd client to publish with");
 
     var publisher = redisclient.createClient();
     publisher.stream.addListener("connect", function () {
@@ -1595,7 +1649,6 @@ var allTestFunctions = [
     testDECRBY,
     testDEL,
     testEXISTS,
-    testEXPIRE,
     testFLUSHALL,
     testFLUSHDB,
     testGET,
@@ -1690,10 +1743,13 @@ var allTestFunctions = [
 function testLargeGetSet() {
     showTestBanner("testLargeGetSet");
 
-    var fileContents = fs.readFileSync(__filename);
+    var fileContents = fs.readFileSync(__filename, "binary");
 
-    if (Buffer.byteLength(fileContents) < client.requestBuffer.length) 
-        assert.fail("the request buffer will not be forced to grow", "testGET (large; 0)");
+    var wasDebugMode = redisclient.debugMode;
+    redisclient.debugMode = false;
+
+    if (verbose && wasDebugMode)
+      sys.debug("** debug output disabled for this test");
 
     client.set('largetestfile', fileContents, function (err, value) {
         if (err) assert.fail(err, "testGET (large; 1)");
@@ -1701,7 +1757,8 @@ function testLargeGetSet() {
 
         client.get('largetestfile', function (err, value) {
             if (err) assert.fail(err, "testGET (large; 3)");
-            checkEqual(value.utf8Slice(0, value.length), fileContents, "testGET (large; 4)");
+            checkEqual(value.binarySlice(0, value.length), fileContents, "testGET (large; 4)");
+            redisclient.debugMode = wasDebugMode;
             testStoreAnImage();
         });
     });
@@ -1713,6 +1770,12 @@ function testLargeGetSet() {
 function testStoreAnImage(callback) {
     showTestBanner("testStoreAnImage");
 
+    var wasDebugMode = redisclient.debugMode;
+    redisclient.debugMode = false;
+
+    if (verbose && wasDebugMode)
+      sys.debug("** debug output disabled for this test");
+
     var paths = [ "sample.png", "test/sample.png" ];
     var path = paths.shift();
     while (true) {
@@ -1723,7 +1786,8 @@ function testStoreAnImage(callback) {
         path = paths.shift();
         if (!path) {
           sys.error("\nFailed to load sample.png -- skipping binary-safety test.\n");
-          testSUBSCRIBEandPUBLISH();
+          redisclient.debugMode = wasDebugMode;
+          testEXPIRE();
           return;
         }
       }
@@ -1743,7 +1807,8 @@ function testStoreAnImage(callback) {
             checkEqual(value.binarySlice(0, value.length), 
                        imageBuffer.binarySlice(0, imageBuffer.length), 
                        "testStoreAnImage (large; 4)");
-            testSUBSCRIBEandPUBLISH();
+            redisclient.debugMode = wasDebugMode;
+            testEXPIRE();
         });
     });
 }
@@ -1756,17 +1821,19 @@ function checkIfDone() {
         setInterval(function () {
             if (messageWasReceived) {
                 sys.error("\n");
-                log("info", "All tests have passed.");
+                if (!quiet)
+                  log("info", "All tests have passed.");
                 process.exit(0);
             } else {
-                assert.notEqual(++checks, 20, "testSUBSCRIBEandPUBLISH never received message");
+                assert.notEqual(++checks, 30, "testSUBSCRIBEandPUBLISH never received message");
             } 
-        }, 100);
+        }, 1000);
     } else {
         if (verbose)
             log('info', client.originalCommands.length + " replies still pending...");
         else if (!quiet)
             sys.print("+");
+        setTimeout(checkIfDone, 1500);
     }
 }
 
@@ -1787,7 +1854,7 @@ function runAllTests() {
         testFunction();
     });
 
-    setInterval(checkIfDone, 1500);
+    setTimeout(checkIfDone, 1500);
 }
 
 // Do not reconnect in tests to keep things simple. 

@@ -45,7 +45,7 @@ When working with a Kiwi-based installation:
 
 This version requires at least `Node.js v0.1.90` and Redis `1.3.8`.
 
-Tested with node `v0.1.91-20-g6e715b8`.
+Tested with Node.js `v0.1.93` and Redis `1.3.10`.
 
 You have a number of choices:
 
@@ -100,11 +100,4 @@ and [this](http://github.com/fictorial/redis-node-client/blob/master/examples/su
 
 All commands/requests use the Redis *multi-bulk request* format which will be
 the only accepted request protocol come Redis 2.0.
-
-## Metadata
-
-- *Author*: Brian Hammond (brian at fictorial dot com) with various patches 
-  from nice people everywhere.
-- *Copyright*: Copyright (C) 2010 Fictorial LLC.
-- *License*: MIT
 
